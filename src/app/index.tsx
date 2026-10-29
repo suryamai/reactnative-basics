@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,58 +8,57 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Palette } from '@/constants/colors';
+import { useAuth } from '@/context/auth-context';
+import { getCategoriesApi, getDishesApi, DishItem } from '@/services/menu-service';
 
 const { width } = Dimensions.get('window');
 
-// Mock Categories
-const CATEGORIES = [
-  { id: '1', name: 'All', icon: 'silverware-fork-knife' },
-  { id: '2', name: 'Burger', icon: 'hamburger' },
-  { id: '3', name: 'Pizza', icon: 'pizza' },
-  { id: '4', name: 'Asian', icon: 'noodles' },
-  { id: '5', name: 'Dessert', icon: 'cake' },
-  { id: '6', name: 'Drinks', icon: 'glass-cocktail' },
+// Fallback Mock Categories if server offline
+const FALLBACK_CATEGORIES = [
+  'All',
+  'Biryani & Rice',
+  'South Indian',
+  'North Indian',
+  'Pizza & Fast Food',
+  'Desserts',
+  'Beverages',
 ];
 
-// Mock Popular Foods
-const POPULAR_FOODS = [
+// Fallback Mock Dishes
+const FALLBACK_DISHES: DishItem[] = [
   {
-    id: '1',
+    id: 1,
     name: 'Cheesy Beef Burger',
-    category: 'Burger',
-    price: '$8.99',
+    category: 'Fast Food',
+    price: 8.99,
     rating: '4.8',
-    reviews: '120+',
     time: '15-20 min',
-    image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60',
-    isFavorite: true,
+    image_url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60',
   },
   {
-    id: '2',
-    name: 'Pepperoni Pizza',
-    category: 'Pizza',
-    price: '$12.50',
+    id: 2,
+    name: 'Special Chicken Biryani',
+    category: 'Biryani & Rice',
+    price: 12.50,
     rating: '4.9',
-    reviews: '230+',
     time: '20-25 min',
-    image: 'https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?w=500&auto=format&fit=crop&q=60',
-    isFavorite: false,
+    image_url: 'https://images.unsplash.com/photo-1633945274405-b6c8069047b0?w=500&auto=format&fit=crop&q=60',
   },
   {
-    id: '3',
-    name: 'Salmon Ramen Bowl',
-    category: 'Asian',
-    price: '$14.00',
+    id: 3,
+    name: 'Masala Dosa Combo',
+    category: 'South Indian',
+    price: 7.50,
     rating: '4.7',
-    reviews: '85+',
-    time: '25-30 min',
-    image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=500&auto=format&fit=crop&q=60',
-    isFavorite: false,
+    time: '15-20 min',
+    image_url: 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=500&auto=format&fit=crop&q=60',
   },
 ];
 
@@ -67,8 +66,8 @@ const POPULAR_FOODS = [
 const NEARBY_RESTAURANTS = [
   {
     id: '101',
-    name: 'Burger Craft & Co.',
-    tags: 'Fast Food • American • Gourmet',
+    name: 'Royal Biryani House',
+    tags: 'Biryani • North Indian • Mughlai',
     rating: '4.9',
     time: '15-25 min',
     deliveryFee: 'Free Delivery',
@@ -77,10 +76,10 @@ const NEARBY_RESTAURANTS = [
   },
   {
     id: '102',
-    name: 'La Bella Italia',
-    tags: 'Italian • Pizza • Pasta',
+    name: 'Southern Tiffins & Meals',
+    tags: 'South Indian • Dosa • Pure Veg',
     rating: '4.8',
-    time: '25-35 min',
+    time: '20-30 min',
     deliveryFee: '$1.99 Delivery',
     discount: 'Free Drink',
     image: 'https://images.unsplash.com/photo-1537047902294-62a40c20a6ae?w=500&auto=format&fit=crop&q=60',
@@ -88,12 +87,67 @@ const NEARBY_RESTAURANTS = [
 ];
 
 export default function HomeScreen() {
-  const [selectedCategory, setSelectedCategory] = useState('1');
-  const [favorites, setFavorites] = useState<Record<string, boolean>>({
-    '1': true,
+  const router = useRouter();
+  const { user, logout } = useAuth();
+
+  const [categories, setCategories] = useState<string[]>(FALLBACK_CATEGORIES);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dishes, setDishes] = useState<DishItem[]>(FALLBACK_DISHES);
+  const [loadingDishes, setLoadingDishes] = useState(false);
+  const [favorites, setFavorites] = useState<Record<string | number, boolean>>({
+    1: true,
   });
 
-  const toggleFavorite = (id: string) => {
+  // Load Categories on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const liveCategories = await getCategoriesApi();
+        if (Array.isArray(liveCategories) && liveCategories.length > 0) {
+          setCategories(['All', ...liveCategories]);
+        }
+      } catch (e) {
+        console.log('Using fallback categories');
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  // Fetch Dishes when category or search changes
+  useEffect(() => {
+    const fetchDishes = async () => {
+      setLoadingDishes(true);
+      try {
+        const categoryFilter = selectedCategory === 'All' ? '' : selectedCategory;
+        const liveDishes = await getDishesApi({
+          category: categoryFilter,
+          search: searchQuery,
+          limit: 30,
+        });
+
+        if (Array.isArray(liveDishes) && liveDishes.length > 0) {
+          setDishes(liveDishes);
+        } else if (categoryFilter || searchQuery) {
+          setDishes([]);
+        } else {
+          setDishes(FALLBACK_DISHES);
+        }
+      } catch (e) {
+        console.log('Using fallback dishes');
+      } finally {
+        setLoadingDishes(false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      fetchDishes();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [selectedCategory, searchQuery]);
+
+  const toggleFavorite = (id: string | number) => {
     setFavorites((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
@@ -129,11 +183,16 @@ export default function HomeScreen() {
                 style={styles.avatarImage}
               />
             </TouchableOpacity>
+
+            <TouchableOpacity style={styles.logoutHeaderBtn} onPress={logout}>
+              <Ionicons name="log-out-outline" size={20} color={Palette.brandOrange} />
+            </TouchableOpacity>
           </View>
         </View>
 
         {/* HERO TITLE */}
         <View style={styles.heroTextContainer}>
+          <Text style={styles.userGreeting}>Welcome, {user?.name || 'Surya'} 👋</Text>
           <Text style={styles.heroTitle}>
             What do you want to <Text style={{ color: Palette.brandOrange }}>eat</Text> today? 😋
           </Text>
@@ -144,10 +203,17 @@ export default function HomeScreen() {
           <View style={styles.searchBar}>
             <Ionicons name="search" size={20} color={Palette.darkBrown} style={styles.searchIcon} />
             <TextInput
-              placeholder="Search dishes, restaurants..."
+              placeholder="Search 540+ dishes, biryani, paneer..."
               placeholderTextColor={Palette.grayText}
               style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
             />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={Palette.grayText} />
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <TouchableOpacity style={styles.filterBtn}>
@@ -187,12 +253,12 @@ export default function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.categoriesContainer}
         >
-          {CATEGORIES.map((cat) => {
-            const isSelected = selectedCategory === cat.id;
+          {categories.map((cat, idx) => {
+            const isSelected = selectedCategory === cat;
             return (
               <TouchableOpacity
-                key={cat.id}
-                onPress={() => setSelectedCategory(cat.id)}
+                key={idx}
+                onPress={() => setSelectedCategory(cat)}
                 style={[
                   styles.categoryPill,
                   isSelected ? styles.categoryPillActive : styles.categoryPillInactive,
@@ -205,8 +271,18 @@ export default function HomeScreen() {
                   ]}
                 >
                   <MaterialCommunityIcons
-                    name={cat.icon as any}
-                    size={20}
+                    name={
+                      cat.toLowerCase().includes('biryani')
+                        ? 'bowl-mix'
+                        : cat.toLowerCase().includes('south')
+                        ? 'food-variant'
+                        : cat.toLowerCase().includes('pizza')
+                        ? 'pizza'
+                        : cat.toLowerCase().includes('dessert')
+                        ? 'cake'
+                        : 'silverware-fork-knife'
+                    }
+                    size={18}
                     color={isSelected ? Palette.darkBrown : Palette.brandOrange}
                   />
                 </View>
@@ -216,7 +292,7 @@ export default function HomeScreen() {
                     isSelected ? styles.categoryTextActive : styles.categoryTextInactive,
                   ]}
                 >
-                  {cat.name}
+                  {cat}
                 </Text>
               </TouchableOpacity>
             );
@@ -225,54 +301,85 @@ export default function HomeScreen() {
 
         {/* POPULAR DISHES SECTION */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Popular Near You</Text>
+          <Text style={styles.sectionTitle}>
+            {selectedCategory === 'All' ? 'Popular Dishes' : selectedCategory}
+          </Text>
           <TouchableOpacity>
-            <Text style={styles.seeAllText}>See All</Text>
+            <Text style={styles.seeAllText}>See All ({dishes.length})</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.popularContainer}
-        >
-          {POPULAR_FOODS.map((food) => (
-            <TouchableOpacity key={food.id} activeOpacity={0.9} style={styles.foodCard}>
-              <View style={styles.foodImageWrapper}>
-                <Image source={{ uri: food.image }} style={styles.foodImage} />
-                <TouchableOpacity
-                  style={styles.favBtn}
-                  onPress={() => toggleFavorite(food.id)}
-                >
-                  <Ionicons
-                    name={favorites[food.id] ? 'heart' : 'heart-outline'}
-                    size={18}
-                    color={favorites[food.id] ? Palette.brandOrange : Palette.darkBrown}
+        {loadingDishes ? (
+          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color={Palette.brandOrange} />
+          </View>
+        ) : dishes.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>No dishes found for "{searchQuery || selectedCategory}"</Text>
+          </View>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.popularContainer}
+          >
+            {dishes.map((food) => (
+              <TouchableOpacity
+                key={food.id}
+                activeOpacity={0.9}
+                style={styles.foodCard}
+                onPress={() =>
+                  router.push({ pathname: '/food/[id]', params: { id: String(food.id) } })
+                }
+              >
+                <View style={styles.foodImageWrapper}>
+                  <Image
+                    source={{
+                      uri:
+                        food.image_url ||
+                        food.image ||
+                        'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=60',
+                    }}
+                    style={styles.foodImage}
                   />
-                </TouchableOpacity>
-
-                <View style={styles.ratingBadge}>
-                  <Ionicons name="star" size={12} color={Palette.brandOrange} />
-                  <Text style={styles.ratingText}>{food.rating}</Text>
-                </View>
-              </View>
-
-              <View style={styles.foodInfo}>
-                <Text style={styles.foodTitle} numberOfLines={1}>
-                  {food.name}
-                </Text>
-                <Text style={styles.foodCategory}>{food.category} • ⏱️ {food.time}</Text>
-
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceText}>{food.price}</Text>
-                  <TouchableOpacity style={styles.addCartBtn}>
-                    <Ionicons name="add" size={20} color={Palette.white} />
+                  <TouchableOpacity
+                    style={styles.favBtn}
+                    onPress={() => toggleFavorite(food.id)}
+                  >
+                    <Ionicons
+                      name={favorites[food.id] ? 'heart' : 'heart-outline'}
+                      size={18}
+                      color={favorites[food.id] ? Palette.brandOrange : Palette.darkBrown}
+                    />
                   </TouchableOpacity>
+
+                  <View style={styles.ratingBadge}>
+                    <Ionicons name="star" size={12} color={Palette.brandOrange} />
+                    <Text style={styles.ratingText}>{food.rating || '4.8'}</Text>
+                  </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+
+                <View style={styles.foodInfo}>
+                  <Text style={styles.foodTitle} numberOfLines={1}>
+                    {food.name}
+                  </Text>
+                  <Text style={styles.foodCategory}>
+                    {food.category} • ⏱️ {food.time || '15-25 min'}
+                  </Text>
+
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceText}>
+                      ${typeof food.price === 'number' ? food.price.toFixed(2) : food.price}
+                    </Text>
+                    <TouchableOpacity style={styles.addCartBtn}>
+                      <Ionicons name="add" size={20} color={Palette.white} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         {/* TOP RESTAURANTS NEARBY */}
         <View style={styles.sectionHeader}>
@@ -392,11 +499,25 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  logoutHeaderBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: Palette.lightPeach,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   /* HERO TEXT */
   heroTextContainer: {
     paddingHorizontal: 20,
     marginVertical: 10,
+  },
+  userGreeting: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.brandOrange,
+    marginBottom: 4,
   },
   heroTitle: {
     fontSize: 26,
@@ -689,6 +810,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
+  },
+  emptyState: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: Palette.grayText,
+    fontWeight: '600',
   },
 
   /* RESTAURANTS */
