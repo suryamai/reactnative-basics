@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { Palette } from '@/constants/colors';
 import { useAuth } from '@/context/auth-context';
+import { useBiometrics } from '@/hooks/useBiometrics';
 import {
   isValidEmailOrPhone,
   isValidPassword,
@@ -25,12 +26,33 @@ import {
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
+  const { isSupported, isEnrolled, biometricType, authenticate } = useBiometrics();
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<LoginFormErrors>({});
+
+  const handleBiometricLogin = async () => {
+    setLoading(true);
+    setErrors({});
+
+    const authRes = await authenticate(`Scan ${biometricType} to log in`);
+    if (authRes.success) {
+      const emailToUse = identifier.trim() || 'surya@example.com';
+      const passToUse = password || '123456';
+      const success = await login(emailToUse, passToUse);
+      if (success) {
+        router.replace('/preparing');
+      }
+    } else if (authRes.error && authRes.error !== 'User canceled') {
+      setErrors({
+        general: `${biometricType} failed: ${authRes.error}. Please use your password.`,
+      });
+    }
+    setLoading(false);
+  };
 
   const validate = (): boolean => {
     const newErrors: LoginFormErrors = {};
@@ -210,16 +232,23 @@ export default function LoginScreen() {
             <View style={styles.orLine} />
           </View>
 
-          {/* FINGERPRINT BIOMETRIC BUTTON */}
+          {/* FINGERPRINT / BIOMETRIC BUTTON */}
           <TouchableOpacity
-            style={styles.fingerprintBtn}
-            onPress={() => {
-              setIdentifier('surya@example.com');
-              setPassword('123456');
-              handleLogin();
-            }}
+            style={styles.biometricPillBtn}
+            onPress={handleBiometricLogin}
           >
-            <Ionicons name="finger-print-outline" size={36} color={Palette.brandOrange} />
+            <Ionicons
+              name={
+                biometricType === 'Face ID'
+                  ? 'scan-outline'
+                  : 'finger-print-outline'
+              }
+              size={24}
+              color={Palette.brandOrange}
+            />
+            <Text style={styles.biometricBtnText}>
+              Log in with {biometricType}
+            </Text>
           </TouchableOpacity>
 
           {/* SOCIAL LOGINS */}
@@ -411,16 +440,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  /* FINGERPRINT */
-  fingerprintBtn: {
-    alignSelf: 'center',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Palette.lightPeach, // #FFDECF
-    justifyContent: 'center',
+  /* BIOMETRICS */
+  biometricPillBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: Palette.lightCream,
+    gap: 10,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Palette.primaryYellow,
+  },
+  biometricBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Palette.darkBrown,
   },
 
   /* SOCIAL */

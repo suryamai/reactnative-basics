@@ -1,4 +1,5 @@
 import { apiClient } from './api-client';
+import { ENDPOINTS } from './apiConfig';
 
 export interface DishItem {
   id: number | string;
@@ -13,67 +14,58 @@ export interface DishItem {
   time?: string;
 }
 
-export interface MenuStats {
-  total_items: number;
-  category_breakdown?: Record<string, number>;
+export interface RestaurantItem {
+  id: number | string;
+  name: string;
+  cover_url?: string;
+  image?: string;
+  cuisines?: string;
+  tags?: string;
+  rating: string | number;
+  distance?: string;
+  delivery_time?: string;
+  time?: string;
+  delivery_fee?: string;
+  deliveryFee?: string;
+  discount?: string;
+}
+
+export interface HomeFeedResponse {
+  banners?: any[];
+  categories?: string[];
+  popular_dishes?: DishItem[];
+  nearby_restaurants?: RestaurantItem[];
 }
 
 export interface GetMenuParams {
   category?: string;
   search?: string;
+  vegOnly?: boolean;
   limit?: number;
   offset?: number;
 }
 
-/** 3. Get All Food Categories */
+export const getHomeFeedApi = async (lat?: number, lng?: number): Promise<HomeFeedResponse> => {
+  return await apiClient<HomeFeedResponse>(ENDPOINTS.HOME_FEED(lat, lng));
+};
+
+export const getBannersApi = async (): Promise<any[]> => {
+  return await apiClient<any[]>(ENDPOINTS.BANNERS);
+};
+
 export const getCategoriesApi = async (): Promise<string[]> => {
-  return await apiClient<string[]>('/menu/categories');
+  return await apiClient<string[]>(ENDPOINTS.CATEGORIES);
 };
 
-/** 4. Get Menu Statistics */
-export const getMenuStatsApi = async (): Promise<MenuStats> => {
-  return await apiClient<MenuStats>('/menu/stats');
+export const getRestaurantsApi = async (lat?: number, lng?: number, sortBy = 'rating', vegOnly = false): Promise<RestaurantItem[]> => {
+  return await apiClient<RestaurantItem[]>(ENDPOINTS.RESTAURANTS(lat, lng, sortBy, vegOnly));
 };
 
-/** 5-8. Get Dishes with Filtering, Searching, & Pagination */
 export const getDishesApi = async (params: GetMenuParams = {}): Promise<DishItem[]> => {
-  return await apiClient<DishItem[]>('/menu', {
-    params: {
-      category: params.category || '',
-      search: params.search || '',
-      limit: params.limit || 50,
-      offset: params.offset || 0,
-    },
-  });
+  const url = ENDPOINTS.MENU_ITEMS(params.category, params.search, params.vegOnly);
+  return await apiClient<DishItem[]>(url);
 };
 
-/** 9. Get Single Dish Details by ID */
 export const getDishByIdApi = async (dishId: string | number): Promise<DishItem> => {
-  return await apiClient<DishItem>(`/menu/${dishId}`);
-};
-
-/** Admin: 14. Add New Dish */
-export const createDishApi = async (dish: Partial<DishItem>): Promise<DishItem> => {
-  return await apiClient<DishItem>('/menu', {
-    method: 'POST',
-    body: JSON.stringify(dish),
-  });
-};
-
-/** Admin: 15. Update Dish */
-export const updateDishApi = async (
-  dishId: string | number,
-  updates: Partial<DishItem>
-): Promise<DishItem> => {
-  return await apiClient<DishItem>(`/menu/${dishId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(updates),
-  });
-};
-
-/** Admin: 16. Delete Dish */
-export const deleteDishApi = async (dishId: string | number): Promise<{ success: boolean }> => {
-  return await apiClient<{ success: boolean }>(`/menu/${dishId}`, {
-    method: 'DELETE',
-  });
+  return await apiClient<DishItem>(ENDPOINTS.DISH_DETAILS(Number(dishId)));
 };

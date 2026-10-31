@@ -110,7 +110,7 @@ export default function PreparingScreen() {
     const timer = setTimeout(() => {
       clearInterval(msgInterval);
       clearInterval(progressInterval);
-      router.replace('/');
+      router.replace('/(tabs)/' as any);
     }, 3200);
 
     return () => {

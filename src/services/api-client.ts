@@ -1,11 +1,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// BASE API CONFIGURATION
-// Configured to user's Python server IP http://192.168.1.11:8000
-// With fallback to http://10.0.2.2:8000 for local Android Emulator testing
-export const BASE_URL = 'http://192.168.1.11:8000';
-export const EMULATOR_BASE_URL = 'http://10.0.2.2:8000';
+import { BASE_URL, EMULATOR_BASE_URL } from './apiConfig';
 
 const TOKEN_KEY = '@yumquick_auth_token';
 
@@ -23,16 +18,35 @@ export const removeAuthToken = async () => {
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number>;
+  timeoutMs?: number;
 }
+
+const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 8000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+};
 
 export async function apiClient<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { params, headers, ...customConfig } = options;
+  const { params, headers, timeoutMs = 8000, ...customConfig } = options;
 
-  // Primary URL is 192.168.1.11:8000
-  let primaryUrl = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  let primaryUrl = endpoint.startsWith('http')
+    ? endpoint
+    : `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
   if (params) {
     const searchParams = new URLSearchParams();
@@ -42,7 +56,7 @@ export async function apiClient<T>(
       }
     });
     const queryString = searchParams.toString();
-    if (queryString) {
+    if (queryString && !primaryUrl.includes('?')) {
       primaryUrl += `?${queryString}`;
     }
   }
@@ -67,9 +81,13 @@ export async function apiClient<T>(
     ...customConfig,
   };
 
+  console.log(`🌐 [API Request] ${config.method || 'GET'} -> ${primaryUrl}`);
+  if (config.body) {
+    console.log(`📦 [API Payload]:`, config.body);
+  }
+
   try {
-    // Attempt request to 192.168.1.11:8000 first
-    const response = await fetch(primaryUrl, config);
+    const response = await fetchWithTimeout(primaryUrl, config, timeoutMs);
 
     if (!response.ok) {
       let errorData;
@@ -78,10 +96,13 @@ export async function apiClient<T>(
       } catch {
         errorData = { message: response.statusText || 'Server error' };
       }
+      console.warn(`❌ [API Error] ${primaryUrl} (${response.status}):`, errorData);
       throw new Error(
         errorData.detail || errorData.message || `HTTP Error ${response.status}`
       );
     }
+
+    console.log(`✅ [API Success] ${primaryUrl} (${response.status})`);
 
     if (response.status === 204) {
       return {} as T;
@@ -89,19 +110,21 @@ export async function apiClient<T>(
 
     return (await response.json()) as T;
   } catch (error: any) {
-    // If primary IP fails on Android Emulator, try 10.0.2.2 fallback
-    if (Platform.OS === 'android') {
+    if (Platform.OS === 'android' && primaryUrl.includes(BASE_URL)) {
       try {
         const fallbackUrl = primaryUrl.replace(BASE_URL, EMULATOR_BASE_URL);
-        const fbResponse = await fetch(fallbackUrl, config);
+        console.log(`🔄 [API Fallback] Trying emulator loopback -> ${fallbackUrl}`);
+        const fbResponse = await fetchWithTimeout(fallbackUrl, config, 3000);
         if (fbResponse.ok) {
+          console.log(`✅ [API Fallback Success] ${fallbackUrl}`);
           if (fbResponse.status === 204) return {} as T;
           return (await fbResponse.json()) as T;
         }
       } catch (e) {
-        // rethrow original error
+        // Fallback network error
       }
     }
+    console.warn(`❌ [API Network Exception] ${primaryUrl}:`, error.message);
     throw error;
   }
 }

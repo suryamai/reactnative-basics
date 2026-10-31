@@ -5,7 +5,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider, useAuth } from '@/context/auth-context';
 import { Palette } from '@/constants/colors';
 
-SplashScreen.preventAutoHideAsync();
+// Prevent splash screen from auto-hiding until ready
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function InitialLayout() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -36,7 +37,7 @@ function InitialLayout() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Palette.brandOrange} />
+        <ActivityIndicator size="large" color={Palette.white} />
       </View>
     );
   }
@@ -57,6 +58,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: Palette.brandOrange,
+    backgroundColor: Palette.brandOrange, // #E95322 Brand Kitchen Orange
   },
 });

@@ -1,4 +1,5 @@
 import { apiClient, setAuthToken, removeAuthToken } from './api-client';
+import { ENDPOINTS } from './apiConfig';
 
 export interface AuthResponse {
   access_token?: string;
@@ -28,7 +29,7 @@ export const loginApi = async (identifier: string, pass: string): Promise<AuthRe
     ? { email: identifier, password: pass }
     : { phone: identifier, password: pass };
 
-  const data = await apiClient<AuthResponse>('/auth/login', {
+  const data = await apiClient<AuthResponse>(ENDPOINTS.LOGIN, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -41,7 +42,7 @@ export const loginApi = async (identifier: string, pass: string): Promise<AuthRe
 };
 
 export const signupApi = async (params: SignupParams): Promise<AuthResponse> => {
-  const data = await apiClient<AuthResponse>('/auth/signup', {
+  const data = await apiClient<AuthResponse>(ENDPOINTS.SIGNUP, {
     method: 'POST',
     body: JSON.stringify({
       fullName: params.fullName,
@@ -60,5 +61,11 @@ export const signupApi = async (params: SignupParams): Promise<AuthResponse> => 
 };
 
 export const logoutApi = async (): Promise<void> => {
-  await removeAuthToken();
+  try {
+    await apiClient(ENDPOINTS.LOGOUT, { method: 'POST' });
+  } catch (e) {
+    // ignore
+  } finally {
+    await removeAuthToken();
+  }
 };

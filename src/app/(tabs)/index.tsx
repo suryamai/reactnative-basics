@@ -8,19 +8,26 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Palette } from '@/constants/colors';
+import { CURRENCY_SYMBOL } from '@/constants/config';
 import { useAuth } from '@/context/auth-context';
-import { getCategoriesApi, getDishesApi, DishItem } from '@/services/menu-service';
+import { useLocationStore } from '@/store/locationStore';
+import { LocationPickerModal } from '@/components/LocationPicker';
+import { FoodCardSkeleton } from '@/components/Skeleton';
+import {
+  getHomeFeedApi,
+  getRestaurantsApi,
+  DishItem,
+  RestaurantItem,
+} from '@/services/menu-service';
 
 const { width } = Dimensions.get('window');
 
-// Fallback Mock Categories if server offline
 const FALLBACK_CATEGORIES = [
   'All',
   'Biryani & Rice',
@@ -28,16 +35,14 @@ const FALLBACK_CATEGORIES = [
   'North Indian',
   'Pizza & Fast Food',
   'Desserts',
-  'Beverages',
 ];
 
-// Fallback Mock Dishes
 const FALLBACK_DISHES: DishItem[] = [
   {
     id: 1,
     name: 'Cheesy Beef Burger',
     category: 'Fast Food',
-    price: 8.99,
+    price: 199,
     rating: '4.8',
     time: '15-20 min',
     image_url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60',
@@ -46,7 +51,7 @@ const FALLBACK_DISHES: DishItem[] = [
     id: 2,
     name: 'Special Chicken Biryani',
     category: 'Biryani & Rice',
-    price: 12.50,
+    price: 280,
     rating: '4.9',
     time: '20-25 min',
     image_url: 'https://images.unsplash.com/photo-1633945274405-b6c8069047b0?w=500&auto=format&fit=crop&q=60',
@@ -55,15 +60,14 @@ const FALLBACK_DISHES: DishItem[] = [
     id: 3,
     name: 'Masala Dosa Combo',
     category: 'South Indian',
-    price: 7.50,
+    price: 120,
     rating: '4.7',
     time: '15-20 min',
     image_url: 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=500&auto=format&fit=crop&q=60',
   },
 ];
 
-// Mock Nearby Restaurants
-const NEARBY_RESTAURANTS = [
+const FALLBACK_RESTAURANTS: RestaurantItem[] = [
   {
     id: '101',
     name: 'Royal Biryani House',
@@ -80,7 +84,7 @@ const NEARBY_RESTAURANTS = [
     tags: 'South Indian • Dosa • Pure Veg',
     rating: '4.8',
     time: '20-30 min',
-    deliveryFee: '$1.99 Delivery',
+    deliveryFee: '₹25 Delivery',
     discount: 'Free Drink',
     image: 'https://images.unsplash.com/photo-1537047902294-62a40c20a6ae?w=500&auto=format&fit=crop&q=60',
   },
@@ -89,63 +93,47 @@ const NEARBY_RESTAURANTS = [
 export default function HomeScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { areaName, lat, lng } = useLocationStore();
 
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [categories, setCategories] = useState<string[]>(FALLBACK_CATEGORIES);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [dishes, setDishes] = useState<DishItem[]>(FALLBACK_DISHES);
-  const [loadingDishes, setLoadingDishes] = useState(false);
+  const [restaurants, setRestaurants] = useState<RestaurantItem[]>(FALLBACK_RESTAURANTS);
+  const [loadingFeed, setLoadingFeed] = useState(false);
   const [favorites, setFavorites] = useState<Record<string | number, boolean>>({
     1: true,
   });
 
-  // Load Categories on mount
+  // Fetch Home Feed from GET /home and GET /restaurants
   useEffect(() => {
-    const fetchCategories = async () => {
+    const fetchHomeFeed = async () => {
+      setLoadingFeed(true);
       try {
-        const liveCategories = await getCategoriesApi();
-        if (Array.isArray(liveCategories) && liveCategories.length > 0) {
-          setCategories(['All', ...liveCategories]);
+        const feed = await getHomeFeedApi(lat, lng);
+        if (feed) {
+          if (feed.categories && feed.categories.length > 0) {
+            setCategories(['All', ...feed.categories]);
+          }
+          if (feed.popular_dishes && feed.popular_dishes.length > 0) {
+            setDishes(feed.popular_dishes);
+          }
+        }
+
+        const restoList = await getRestaurantsApi(lat, lng);
+        if (Array.isArray(restoList) && restoList.length > 0) {
+          setRestaurants(restoList);
         }
       } catch (e) {
-        console.log('Using fallback categories');
-      }
-    };
-    fetchCategories();
-  }, []);
-
-  // Fetch Dishes when category or search changes
-  useEffect(() => {
-    const fetchDishes = async () => {
-      setLoadingDishes(true);
-      try {
-        const categoryFilter = selectedCategory === 'All' ? '' : selectedCategory;
-        const liveDishes = await getDishesApi({
-          category: categoryFilter,
-          search: searchQuery,
-          limit: 30,
-        });
-
-        if (Array.isArray(liveDishes) && liveDishes.length > 0) {
-          setDishes(liveDishes);
-        } else if (categoryFilter || searchQuery) {
-          setDishes([]);
-        } else {
-          setDishes(FALLBACK_DISHES);
-        }
-      } catch (e) {
-        console.log('Using fallback dishes');
+        console.log('Using fallback home feed data');
       } finally {
-        setLoadingDishes(false);
+        setLoadingFeed(false);
       }
     };
 
-    const timer = setTimeout(() => {
-      fetchDishes();
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [selectedCategory, searchQuery]);
+    fetchHomeFeed();
+  }, [lat, lng, selectedCategory]);
 
   const toggleFavorite = (id: string | number) => {
     setFavorites((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -155,27 +143,42 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar style="dark" />
 
+      {/* LOCATION PICKER MODAL */}
+      <LocationPickerModal
+        visible={locationPickerVisible}
+        onClose={() => setLocationPickerVisible(false)}
+      />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* HEADER SECTION */}
+        {/* HEADER SECTION WITH LOCATION CHIP */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greetingText}>Deliver to 📍</Text>
-            <TouchableOpacity style={styles.locationSelector}>
-              <Text style={styles.locationText}>Home - 242 Park Avenue</Text>
+            <TouchableOpacity
+              style={styles.locationSelector}
+              onPress={() => setLocationPickerVisible(true)}
+            >
+              <Text style={styles.locationText}>{areaName}</Text>
               <Ionicons name="chevron-down" size={16} color={Palette.brandOrange} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconBadgeBtn}>
+            <TouchableOpacity
+              style={styles.iconBadgeBtn}
+              onPress={() => router.push('/notifications')}
+            >
               <Ionicons name="notifications-outline" size={22} color={Palette.darkBrown} />
               <View style={styles.notificationDot} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.avatarContainer}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={() => router.push('/(tabs)/profile')}
+            >
               <Image
                 source={{
                   uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -198,25 +201,21 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* SEARCH & FILTER BAR */}
+        {/* SEARCH BAR */}
         <View style={styles.searchRow}>
-          <View style={styles.searchBar}>
+          <TouchableOpacity
+            style={styles.searchBar}
+            activeOpacity={0.9}
+            onPress={() => router.push('/(tabs)/search')}
+          >
             <Ionicons name="search" size={20} color={Palette.darkBrown} style={styles.searchIcon} />
-            <TextInput
-              placeholder="Search 540+ dishes, biryani, paneer..."
-              placeholderTextColor={Palette.grayText}
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery ? (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={18} color={Palette.grayText} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
+            <Text style={styles.searchPlaceholder}>Search 540+ dishes, biryani, paneer...</Text>
+          </TouchableOpacity>
 
-          <TouchableOpacity style={styles.filterBtn}>
+          <TouchableOpacity
+            style={styles.filterBtn}
+            onPress={() => router.push('/(tabs)/search')}
+          >
             <Ionicons name="options-outline" size={22} color={Palette.darkBrown} />
           </TouchableOpacity>
         </View>
@@ -309,13 +308,19 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {loadingDishes ? (
-          <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-            <ActivityIndicator size="small" color={Palette.brandOrange} />
-          </View>
+        {loadingFeed ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingLeft: 20, gap: 16 }}
+          >
+            <FoodCardSkeleton />
+            <FoodCardSkeleton />
+            <FoodCardSkeleton />
+          </ScrollView>
         ) : dishes.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No dishes found for "{searchQuery || selectedCategory}"</Text>
+            <Text style={styles.emptyText}>No dishes found for "{selectedCategory}"</Text>
           </View>
         ) : (
           <ScrollView
@@ -369,7 +374,8 @@ export default function HomeScreen() {
 
                   <View style={styles.priceRow}>
                     <Text style={styles.priceText}>
-                      ${typeof food.price === 'number' ? food.price.toFixed(2) : food.price}
+                      {CURRENCY_SYMBOL}
+                      {typeof food.price === 'number' ? food.price : food.price}
                     </Text>
                     <TouchableOpacity style={styles.addCartBtn}>
                       <Ionicons name="add" size={20} color={Palette.white} />
@@ -383,18 +389,26 @@ export default function HomeScreen() {
 
         {/* TOP RESTAURANTS NEARBY */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Top Restaurants</Text>
+          <Text style={styles.sectionTitle}>Top Restaurants Near You</Text>
           <TouchableOpacity>
             <Text style={styles.seeAllText}>See All</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.restaurantList}>
-          {NEARBY_RESTAURANTS.map((resto) => (
+          {restaurants.map((resto) => (
             <TouchableOpacity key={resto.id} activeOpacity={0.9} style={styles.restoCard}>
-              <Image source={{ uri: resto.image }} style={styles.restoImage} />
+              <Image
+                source={{
+                  uri:
+                    resto.cover_url ||
+                    resto.image ||
+                    'https://images.unsplash.com/photo-1550547660-d9450f859349?w=500&auto=format&fit=crop&q=60',
+                }}
+                style={styles.restoImage}
+              />
               <View style={styles.discountBadge}>
-                <Text style={styles.discountBadgeText}>{resto.discount}</Text>
+                <Text style={styles.discountBadgeText}>{resto.discount || 'Free Delivery'}</Text>
               </View>
 
               <View style={styles.restoDetails}>
@@ -406,12 +420,18 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.restoTags}>{resto.tags}</Text>
+                <Text style={styles.restoTags}>
+                  {resto.cuisines || resto.tags || 'North Indian • Fast Food'}
+                </Text>
 
                 <View style={styles.restoMetaRow}>
-                  <Text style={styles.restoMetaText}>⏱️ {resto.time}</Text>
+                  <Text style={styles.restoMetaText}>
+                    ⏱️ {resto.delivery_time || resto.time || '20-30 min'}
+                  </Text>
                   <Text style={styles.metaDot}>•</Text>
-                  <Text style={styles.restoMetaText}>🛵 {resto.deliveryFee}</Text>
+                  <Text style={styles.restoMetaText}>
+                    🛵 {resto.distance || resto.delivery_fee || '1.5 km'}
+                  </Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -472,11 +492,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Palette.lightCream,
-    shadowColor: Palette.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   notificationDot: {
     position: 'absolute',
@@ -543,19 +558,13 @@ const styles = StyleSheet.create({
     height: 50,
     borderWidth: 1,
     borderColor: Palette.lightCream,
-    shadowColor: Palette.cardShadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 1,
   },
   searchIcon: {
     marginRight: 8,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: Palette.darkBrown,
+  searchPlaceholder: {
+    fontSize: 13,
+    color: Palette.grayText,
     fontWeight: '500',
   },
   filterBtn: {
@@ -565,11 +574,6 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primaryYellow,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: Palette.cardShadow,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
   },
 
   /* PROMO BANNER */
@@ -583,12 +587,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     overflow: 'hidden',
-    position: 'relative',
-    shadowColor: Palette.brandOrange,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 5,
   },
   promoTextCol: {
     flex: 1,
@@ -606,7 +604,6 @@ const styles = StyleSheet.create({
     color: Palette.darkBrown,
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.8,
   },
   promoTitle: {
     fontSize: 28,
@@ -675,11 +672,6 @@ const styles = StyleSheet.create({
   },
   categoryPillActive: {
     backgroundColor: Palette.primaryYellow,
-    shadowColor: Palette.primaryYellow,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
   },
   categoryPillInactive: {
     backgroundColor: Palette.white,
@@ -724,11 +716,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: Palette.lightCream,
-    shadowColor: Palette.cardShadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
   },
   foodImageWrapper: {
     position: 'relative',
@@ -750,11 +737,6 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.white,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
   },
   ratingBadge: {
     position: 'absolute',
@@ -785,7 +767,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Palette.grayText,
     marginTop: 2,
-    fontWeight: '500',
   },
   priceRow: {
     flexDirection: 'row',
@@ -805,11 +786,6 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.brandOrange,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: Palette.brandOrange,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   emptyState: {
     padding: 20,
@@ -832,11 +808,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: Palette.lightCream,
-    shadowColor: Palette.cardShadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
   },
   restoImage: {
     width: '100%',
@@ -887,7 +858,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Palette.grayText,
     marginTop: 4,
-    fontWeight: '500',
   },
   restoMetaRow: {
     flexDirection: 'row',
